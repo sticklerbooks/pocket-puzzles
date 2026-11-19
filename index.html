@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Pocket Puzzles</title>
+  <meta name="description" content="Endless generated puzzles. No ads, no upgrades.">
+  <meta name="theme-color" content="#14161c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Puzzles">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="menu">
+    <header class="menu-head"><h1>Pocket Puzzles</h1></header>
+    <div id="game-list"></div>
+  </main>
+
+  <main id="play" hidden>
+    <header class="play-head">
+      <button id="back" class="icon" aria-label="Back to menu">‹</button>
+      <div class="titles"><div id="title"></div><div id="level"></div></div>
+      <span class="icon spacer"></span>
+    </header>
+    <div id="status"></div>
+    <div id="board"></div>
+    <footer class="controls">
+      <button id="undo">Undo</button>
+      <button id="restart">Restart</button>
+      <button id="new">New</button>
+    </footer>
+    <div id="overlay" hidden>
+      <div class="won">
+        <h2>Solved</h2>
+        <p id="won-detail"></p>
+        <button id="next" class="primary">Next puzzle</button>
+        <button id="to-menu">Menu</button>
+      </div>
+    </div>
+  </main>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
