@@ -78,12 +78,13 @@ button { font: inherit; color: inherit; cursor: pointer; }
   padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
 }
 .play-head { display: flex; align-items: center; padding: 8px 8px 0; }
-.icon { width: 44px; height: 44px; border: 0; background: none; font-size: 32px; line-height: 1; }
+.icon { width: 72px; text-align: left; height: 44px; border: 0; background: none; font-size: 32px; line-height: 1; }
 .titles { flex: 1; text-align: center; }
 #title { font-weight: 700; font-size: 18px; }
 #level { color: var(--muted); font-size: 13px; }
 #status { text-align: center; min-height: 24px; padding: 4px 16px; font-size: 15px; font-variant-numeric: tabular-nums; }
-#status.stuck { color: var(--bad); font-weight: 600; }
+#status.lost { color: var(--bad); font-weight: 600; }
+#streak { width: 72px; text-align: right; padding-right: 8px; font-size: 13px; font-weight: 600; color: var(--accent); }
 #board {
   flex: 1; min-height: 0;
   display: flex; align-items: center; justify-content: center;
@@ -112,7 +113,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   display: flex; flex-direction: column; gap: 10px;
 }
 .won h2 { margin: 0; font-size: 26px; }
-.won p { margin: 0 0 6px; color: var(--muted); }
+.won p { margin: 0 0 6px; color: var(--muted); white-space: pre-line; }
 .won button { padding: 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); font-weight: 600; }
 .won button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 @keyframes fade { from { opacity: 0; } }
@@ -150,7 +151,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .seat { width: 16px; height: 16px; border-radius: 50%; background: rgba(255,255,255,0.35); border: 2px solid rgba(255,255,255,0.75); }
 .seat.full { background: #fff; }
 .bus-queue { display: flex; flex-wrap: wrap; gap: 4px; align-content: center; }
-.chip { width: 18px; height: 12px; border-radius: 3px; }
+.chip { width: 30px; height: 18px; border-radius: 5px; }
+.more { color: var(--muted); font-size: 13px; margin-left: 4px; }
 .bench {
   display: flex; gap: 8px; justify-content: center;
   padding: 8px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line);
@@ -162,8 +164,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .bus .curb { fill: var(--muted); }
 .bus .floor { fill: var(--space); }
 .bus .wall { fill: none; }
+.traffic .bollard { fill: var(--muted); opacity: 0.55; }
 .rider .body { fill: currentColor; }
-.rider { opacity: 0.38; }
+.rider { opacity: 0.5; }
 .rider.free { opacity: 1; }
 .rider .tap { fill: transparent; }
 .rider.free .tap { cursor: pointer; }

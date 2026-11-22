@@ -1,13 +1,19 @@
 import { svgEl, svgPoint, PALETTE } from '../svg.js';
-import { N, ROW, occupancy, range } from './traffic.js';
+import { occupancy, range } from './traffic.js';
 
 const S = 10, GAP = 0.8;
 
 export function createView(root, p, onMove) {
+  const N = p.n, ROW = p.cars[0].fix;
   const svg = svgEl('svg', { viewBox: `-3 -3 ${N * S + 8} ${N * S + 6}`, class: 'board traffic' }, root);
   svgEl('rect', { x: -1.5, y: -1.5, width: N * S + 3, height: N * S + 3, rx: 3, class: 'lot' }, svg);
   for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
     svgEl('rect', { x: x * S + 0.4, y: y * S + 0.4, width: S - 0.8, height: S - 0.8, rx: 1.2, class: 'space' }, svg);
+  }
+  // Bollards: fixed blocks nothing can pass.
+  for (const k of p.walls || []) {
+    const x = (k % N) * S, y = ((k / N) | 0) * S;
+    svgEl('rect', { x: x + 1.6, y: y + 1.6, width: S - 3.2, height: S - 3.2, rx: 1.4, class: 'bollard' }, svg);
   }
   // Exit: a gap in the right wall at the red car's row.
   svgEl('rect', { x: N * S, y: ROW * S + 1, width: 4, height: S - 2, class: 'exit' }, svg);
@@ -34,11 +40,11 @@ export function createView(root, p, onMove) {
   };
 
   function startDrag(e, i, r) {
-    if (!state || state.pos[0] === N - 2) return;
+    if (!state || state.pos[0] === N - 2 || state.moves >= p.limit) return;
     e.preventDefault();
-    r.setPointerCapture(e.pointerId);
+    try { r.setPointerCapture(e.pointerId); } catch { /* synthetic or already-gone pointer */ }
     const c = p.cars[i];
-    const [lo, hi] = range(p.cars, state.pos, i, occupancy(p.cars, state.pos));
+    const [lo, hi] = range(p, state.pos, i, occupancy(p, state.pos));
     const [sx, sy] = svgPoint(svg, e);
     const from = state.pos[i];
     let v = from;

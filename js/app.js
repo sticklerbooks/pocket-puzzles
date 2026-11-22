@@ -20,6 +20,8 @@ let store;
 try { store = JSON.parse(localStorage.getItem(KEY)) || {}; } catch { store = {}; }
 store.saved ||= {};
 store.solved ||= {};
+store.streak ||= {};
+const streakOf = (game, tier) => ((store.streak[game] ||= {})[tier] ||= { cur: 0, best: 0 });
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch { /* private mode */ } };
 
 // ---- Generation: one worker for the puzzle you're waiting on, one for the next.
@@ -92,10 +94,13 @@ function renderMenu() {
     for (const tier of TIERS) {
       const b = htmlEl('button', 'tier', row);
       const saved = store.saved[id];
-      if (saved && saved.tier === tier) b.classList.add('resume');
+      if (saved && saved.v !== 2) delete store.saved[id];
+      if (saved && saved.tier === tier && saved.v === 2) b.classList.add('resume');
       htmlEl('span', '', b).textContent = TIER_LABEL[tier];
       const solved = (store.solved[id] || {})[tier] || 0;
-      htmlEl('small', '', b).textContent = saved && saved.tier === tier ? 'resume' : solved ? `${solved} solved` : ' ';
+      const st = streakOf(id, tier);
+      htmlEl('small', '', b).textContent = saved && saved.tier === tier && saved.v === 2 ? 'resume'
+        : st.cur ? `streak ${st.cur}` : st.best ? `best ${st.best}` : solved ? `${solved} solved` : ' ';
       b.onclick = () => openGame(id, tier);
     }
   }
@@ -119,7 +124,7 @@ function openGame(game, tier) {
   play.hidden = false;
   $('#title').textContent = byId[game].logic.meta.name;
   const saved = store.saved[game];
-  if (saved && saved.tier === tier) start(saved);
+  if (saved && saved.tier === tier && saved.v === 2) start(saved);
   else newPuzzle(game, tier);
 }
 
@@ -136,7 +141,7 @@ async function newPuzzle(game, tier) {
     return;
   }
   if (token !== loadToken) return;
-  start({ game, tier, seed: r.seed, puzzle: r.puzzle, moves: [] });
+  start({ v: 2, game, tier, seed: r.seed, puzzle: r.puzzle, moves: [] });
 }
 
 function start(rec) {
@@ -145,6 +150,7 @@ function start(rec) {
   const { logic, view } = byId[rec.game];
   cur = { rec, logic, state: null, view: null };
   $('#level').textContent = `${TIER_LABEL[rec.tier]} · #${rec.seed}`;
+  showStreak(rec);
   board.innerHTML = '';
   overlay.hidden = true;
   cur.state = replay();
@@ -171,48 +177,93 @@ function onMove(m) {
   refresh();
 }
 
+function showStreak(rec) {
+  const s = streakOf(rec.game, rec.tier);
+  $('#streak').textContent = s.cur ? `Streak ${s.cur}` : s.best ? `Best ${s.best}` : '';
+}
+
+// Ending a level early (or failing it) breaks the streak.
+function breakStreak(rec) {
+  const s = streakOf(rec.game, rec.tier);
+  const was = s.cur;
+  s.cur = 0;
+  save();
+  showStreak(rec);
+  return was;
+}
+
+function showOverlay(title, detail, primary, onPrimary, showNew) {
+  $('#ov-title').textContent = title;
+  $('#ov-detail').textContent = detail;
+  $('#ov-primary').textContent = primary;
+  $('#ov-primary').onclick = onPrimary;
+  $('#ov-new').hidden = !showNew;
+  overlay.hidden = false;
+}
+
 function refresh() {
   const { rec, logic, state } = cur;
   const st = logic.status(rec.puzzle, state);
   statusEl.textContent = logic.describe(rec.puzzle, state);
-  statusEl.classList.toggle('stuck', st === 'stuck');
-  if (st === 'stuck') statusEl.textContent += ' · Stuck. Undo a move or restart.';
-  $('#undo').disabled = $('#restart').disabled = !rec.moves.length;
+  statusEl.classList.toggle('lost', st === 'lost');
+  $('#restart').disabled = !rec.moves.length || st !== 'play';
   if (st === 'won') {
     const solved = (store.solved[rec.game] ||= {});
     solved[rec.tier] = (solved[rec.tier] || 0) + 1;
+    const s = streakOf(rec.game, rec.tier);
+    s.cur++;
+    s.best = Math.max(s.best, s.cur);
     delete store.saved[rec.game];
     save();
-    $('#won-detail').textContent = logic.describe(rec.puzzle, state);
-    setTimeout(() => { if (cur && cur.rec === rec) overlay.hidden = false; }, 450);
+    showStreak(rec);
+    const best = s.cur === s.best ? (s.cur > 1 ? ' (best yet)' : '') : ` · best ${s.best}`;
+    const detail = `${logic.describe(rec.puzzle, state)}\nStreak ${s.cur}${best}`;
+    setTimeout(() => { if (cur && cur.rec === rec) showOverlay('Solved', detail, 'Next puzzle', nextPuzzle, false); }, 450);
+  } else if (st === 'lost') {
+    let detail = 'Same puzzle, from the start.';
+    if (!rec.failed) {
+      rec.failed = true;
+      const was = breakStreak(rec);
+      if (was) detail = `Streak ended at ${was}.`;
+    }
+    setTimeout(() => { if (cur && cur.rec === rec) showOverlay(logic.lostText(rec.puzzle, state), detail, 'Try again', tryAgain, true); }, 500);
   }
+}
+
+function resetLevel() {
+  cur.rec.moves.length = 0;
+  cur.rec.failed = false;
+  save();
+  cur.state = replay();
+  cur.view.update(cur.state, null);
+  overlay.hidden = true;
+  refresh();
+}
+
+function tryAgain() { if (cur) resetLevel(); }
+function nextPuzzle() { if (cur) newPuzzle(cur.rec.game, cur.rec.tier); }
+
+function confirmBreak(what) {
+  const s = streakOf(cur.rec.game, cur.rec.tier);
+  return !s.cur || confirm(`${what} ends your streak of ${s.cur}. Go ahead?`);
 }
 
 $('#back').onclick = () => history.back();
 window.addEventListener('popstate', showMenu);
-$('#undo').onclick = () => {
-  if (!cur || !cur.rec.moves.length || cur.logic.status(cur.rec.puzzle, cur.state) === 'won') return;
-  cur.rec.moves.pop();
-  save();
-  cur.state = replay();
-  cur.view.update(cur.state, null);
-  refresh();
-};
 $('#restart').onclick = () => {
-  if (!cur || !cur.rec.moves.length || cur.logic.status(cur.rec.puzzle, cur.state) === 'won') return;
-  cur.rec.moves.length = 0;
-  save();
-  cur.state = replay();
-  cur.view.update(cur.state, null);
-  refresh();
+  if (!cur || !cur.rec.moves.length || cur.logic.status(cur.rec.puzzle, cur.state) !== 'play') return;
+  if (!confirmBreak('Starting over')) return;
+  breakStreak(cur.rec);
+  resetLevel();
 };
 $('#new').onclick = () => {
   if (!cur) return;
-  const { game, tier, moves } = cur.rec;
-  if (moves.length && !confirm('Start a new puzzle? This one will be lost.')) return;
-  newPuzzle(game, tier);
+  const st = cur.logic.status(cur.rec.puzzle, cur.state);
+  if (st === 'play' && !confirmBreak('Skipping this puzzle')) return;
+  if (st === 'play') breakStreak(cur.rec);
+  nextPuzzle();
 };
-$('#next').onclick = () => { if (cur) newPuzzle(cur.rec.game, cur.rec.tier); };
+$('#ov-new').onclick = nextPuzzle;
 $('#to-menu').onclick = () => history.back();
 
 showMenu();

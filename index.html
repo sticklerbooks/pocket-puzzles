@@ -25,20 +25,20 @@
     <header class="play-head">
       <button id="back" class="icon" aria-label="Back to menu">‹</button>
       <div class="titles"><div id="title"></div><div id="level"></div></div>
-      <span class="icon spacer"></span>
+      <span id="streak"></span>
     </header>
     <div id="status"></div>
     <div id="board"></div>
     <footer class="controls">
-      <button id="undo">Undo</button>
-      <button id="restart">Restart</button>
-      <button id="new">New</button>
+      <button id="restart">Start over</button>
+      <button id="new">Skip</button>
     </footer>
     <div id="overlay" hidden>
       <div class="won">
-        <h2>Solved</h2>
-        <p id="won-detail"></p>
-        <button id="next" class="primary">Next puzzle</button>
+        <h2 id="ov-title"></h2>
+        <p id="ov-detail"></p>
+        <button id="ov-primary" class="primary"></button>
+        <button id="ov-new">New puzzle</button>
         <button id="to-menu">Menu</button>
       </div>
     </div>

@@ -1,11 +1,11 @@
 // Offline support. Online: fetch fresh files (so fixes arrive on their own).
 // Offline: serve the saved copy. Nothing here ever phones home otherwise.
-const CACHE = 'pocket-puzzles-v1';
+const CACHE = 'pocket-puzzles-v2';
 const FILES = [
   './', 'index.html', 'style.css', 'manifest.webmanifest',
   'js/app.js', 'js/rng.js', 'js/svg.js', 'js/worker.js',
   'js/games/arrows.js', 'js/games/arrows-view.js',
-  'js/games/traffic.js', 'js/games/traffic-view.js',
+  'js/games/traffic.js', 'js/games/traffic-view.js', 'js/games/traffic-bank.js',
   'js/games/bus.js', 'js/games/bus-view.js',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
 ];

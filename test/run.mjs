@@ -19,11 +19,12 @@ function check(game, puzzle, info) {
       if (id < 0) return 'deadlock';
       game.apply(puzzle, s, id);
     }
-    return game.status(puzzle, s) === 'won' && s.bumps === 0 ? null : 'not cleared';
+    return game.status(puzzle, s) === 'won' && s.lives === puzzle.lives ? null : 'not cleared';
   }
   for (const mv of info.solution) if (!game.apply(puzzle, s, mv)) return `illegal move ${JSON.stringify(mv)}`;
   if (game.status(puzzle, s) !== 'won') return 'solution does not win';
   if (game === traffic && info.solution.length !== puzzle.par) return 'par mismatch';
+  if (game === traffic && puzzle.limit < puzzle.par + 4) return 'limit too tight';
   return null;
 }
 

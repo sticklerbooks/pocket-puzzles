@@ -1,13 +1,13 @@
 // Bus Stop: riders stand in a lot; buses arrive in a fixed, fully visible order.
 // Tap a rider who has a clear path to the top edge. Riders matching the bus at
 // the stop board it; others wait on a small bench. Each bus takes 3 riders.
-// A full bench with no matching rider free means you're stuck: undo.
+// A full bench with no matching rider free means you're stuck: game over.
 //
-// No hidden riders, no hidden buses, no luck. Generation picks a walking-out
-// order first, then colors riders so that order wins, so every puzzle is
-// solvable. Difficulty is measured by letting a sensible greedy player
-// (board when you can, otherwise bench whoever is needed soonest) try it many
-// times: easy puzzles let greedy win, expert ones beat it almost every time.
+// You only see the next few buses, so there's some surprise, but every puzzle
+// is solvable: generation picks a walking-out order first, then colors riders
+// so that order wins. Difficulty is measured by letting a careful player who
+// sees only what you see try it many times: easy puzzles let it win most of
+// the time, expert ones only now and then (never zero).
 import { makeRng } from '../rng.js';
 
 export const meta = {
@@ -18,11 +18,13 @@ export const meta = {
 
 export const CAP = 3;
 
+// view: how many buses after the current one you can see coming.
+// band: target win rate for a sensible player who only sees what you see.
 const TIERS = {
-  easy:   { w: 5, h: 6, colors: 3, bench: 5, wallP: 0.08, detour: 0.10, margin: 2, look: 2, band: [0.75, 1.01] },
-  medium: { w: 6, h: 7, colors: 4, bench: 5, wallP: 0.10, detour: 0.25, margin: 1, look: 3, band: [0.4, 0.75] },
-  hard:   { w: 7, h: 8, colors: 5, bench: 5, wallP: 0.10, detour: 0.35, margin: 0, look: 4, band: [0.12, 0.4] },
-  expert: { w: 7, h: 9, colors: 6, bench: 4, wallP: 0.12, detour: 0.45, margin: 0, look: 5, band: [-0.01, 0.12] },
+  easy:   { w: 6, h: 7,  colors: 4, bench: 5, view: 3, wallP: 0.08, detour: 0.15, margin: 1, look: 3, band: [0.6, 1.01] },
+  medium: { w: 7, h: 8,  colors: 5, bench: 5, view: 2, wallP: 0.10, detour: 0.30, margin: 0, look: 3, band: [0.35, 0.65] },
+  hard:   { w: 8, h: 9,  colors: 6, bench: 4, view: 2, wallP: 0.10, detour: 0.50, margin: 0, look: 3, band: [0.15, 0.35] },
+  expert: { w: 9, h: 10, colors: 8, bench: 4, view: 1, wallP: 0.12, detour: 0.55, margin: 0, look: 2, band: [0.04, 0.2] },
 };
 
 const WALL = -2, EMPTY = -1;
@@ -150,8 +152,10 @@ export function status(p, s) {
   const cur = p.buses[s.bus];
   const room = s.bench.length < p.bench;
   for (let i = 0; i < acc.length; i++) if (acc[i] && (room || s.cells[i] === cur)) return 'play';
-  return 'stuck';
+  return 'lost';
 }
+
+export function lostText() { return 'Stuck: bench full'; }
 
 export function describe(p, s) {
   if (s.bus >= p.buses.length) return `All ${p.buses.length} buses filled`;
@@ -170,12 +174,22 @@ function playout(p, rng, smart) {
     const room = s.bench.length < p.bench;
     let pick;
     if (smart) {
-      if (match.length) pick = rng.pick(match);
-      else {
-        const soon = (c) => { const k = p.buses.indexOf(c, s.bus + 1); return k < 0 ? 1e9 : k; };
-        const best = Math.min(...other.map((i) => soon(s.cells[i])));
-        pick = rng.pick(other.filter((i) => soon(s.cells[i]) === best));
-      }
+      // A careful player: board when possible; otherwise dig toward riders the
+      // current bus needs, benching riders for buses already in sight. Only
+      // the buses you can see count; anything further out is a guess.
+      const seen = p.buses.slice(s.bus + 1, s.bus + 1 + p.view);
+      const value = (c) => (c === cur ? 3 : seen.includes(c) ? 1 : 0);
+      const opens = (i) => {
+        const c2 = s.cells.slice();
+        c2[i] = EMPTY;
+        const a2 = reachable(c2, p.w, p.h);
+        let v = 0;
+        for (let j = 0; j < a2.length; j++) if (a2[j] && !acc[j]) v += value(c2[j]);
+        return v;
+      };
+      const pool = match.length ? match : other;
+      const score = pool.map((i) => opens(i) + (match.length ? 0 : value(s.cells[i]) * 2) + rng() * 0.5);
+      pick = pool[score.indexOf(Math.max(...score))];
     } else {
       pick = rng.pick(room ? match.concat(other) : match);
     }
@@ -187,7 +201,9 @@ export function generate(tier, seed) {
   const t = TIERS[tier];
   const rng = makeRng(seed);
   let best = null, inBand = 0;
-  for (let a = 0; a < 60 && inBand < 3; a++) {
+  const t0 = Date.now();
+  for (let a = 0; a < 80 && inBand < 2; a++) {
+    if (best && Date.now() - t0 > 2500) break;
     const cells = layout(t, rng);
     const order = walkOrder(cells, t.w, t.h, rng);
     if (order.length < 9) continue;
@@ -196,18 +212,18 @@ export function generate(tier, seed) {
     const color = colorize(order, buses, t, rng);
     const pc = Array.from(cells);
     order.forEach((i, k) => { pc[i] = color[k]; });
-    const puzzle = { w: t.w, h: t.h, cells: pc, buses, bench: t.bench };
+    const puzzle = { w: t.w, h: t.h, cells: pc, buses, bench: t.bench, view: t.view };
     // The planned order must actually win under the real rules.
     const s = init(puzzle);
     if (!order.every((i) => apply(puzzle, s, i)) || status(puzzle, s) !== 'won') continue;
-    const RUNS = 30;
+    const RUNS = 20;
     let g = 0, r = 0;
     for (let k = 0; k < RUNS; k++) { if (playout(puzzle, rng, true)) g++; if (playout(puzzle, rng, false)) r++; }
     const greedy = g / RUNS, random = r / RUNS;
-    const ok = greedy >= t.band[0] && greedy < t.band[1];
+    const ok = greedy >= t.band[0] && greedy < t.band[1] && g > 0;
     if (ok) inBand++;
     const miss = greedy < t.band[0] ? t.band[0] - greedy : Math.max(0, greedy - t.band[1]);
-    const fit = ok ? 100 + (1 - random) * 10 : -miss * 100;
+    const fit = ok ? 100 + (1 - random) * 10 : g === 0 ? -1000 : -miss * 100; // never hand out one nobody wins
     if (!best || fit > best.fit) best = { fit, puzzle, greedy, random, order };
   }
   return {

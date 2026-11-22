@@ -1,7 +1,7 @@
 import { svgEl, htmlEl } from '../svg.js';
 import { CAP, reachable } from './bus.js';
 
-export const COLORS = ['#e5484d', '#3e7bfa', '#f2c40f', '#2fa36b', '#9256d9', '#f2711c'];
+export const COLORS = ['#e5484d', '#3e7bfa', '#f2c40f', '#2fa36b', '#9256d9', '#f2711c', '#ff6fb5', '#12b5c2'];
 const S = 10;
 
 export function createView(root, p, onMove) {
@@ -32,9 +32,11 @@ export function createView(root, p, onMove) {
       } else {
         now.style.background = 'var(--muted)';
       }
-      // Every bus still to come, in order. Nothing hidden.
+      // The next few buses; the rest stay a surprise.
       queue.innerHTML = '';
-      for (let b = s.bus + 1; b < p.buses.length; b++) htmlEl('span', 'chip', queue).style.background = COLORS[p.buses[b]];
+      const last = Math.min(p.buses.length, s.bus + 1 + (p.view || p.buses.length));
+      for (let b = s.bus + 1; b < last; b++) htmlEl('span', 'chip', queue).style.background = COLORS[p.buses[b]];
+      if (p.buses.length > last) htmlEl('span', 'more', queue).textContent = `+${p.buses.length - last} more`;
       bench.innerHTML = '';
       for (let k = 0; k < p.bench; k++) {
         const slot = htmlEl('span', 'slot', bench);

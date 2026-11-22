@@ -1,27 +1,30 @@
 // Arrows: each arrow is a bent line with a head. Tap it and it slides out the
-// way its head points, but only if nothing is in the way.
+// way its head points, but only if nothing is in the way. Tapping a blocked
+// arrow costs a heart; run out and it's game over.
 //
-// Generation: arrows are added one at a time and kept only if the board can
-// still be cleared, so every puzzle is solvable by construction. Removing an
-// arrow never blocks anything, so the only skill is finding the free ones;
-// difficulty is "depth" (how many rounds of removal it takes) and how few
-// arrows are free at each round.
+// Generation: arrows are grown as random winding paths and added one at a
+// time. Each arrow "waits on" the arrows sitting in its path out; a new arrow
+// is kept only if that waiting-graph stays free of loops, which is exactly
+// when the board can still be cleared. So every puzzle is solvable, and the
+// check is cheap enough for boards of 200+ arrows.
 import { makeRng } from '../rng.js';
 
 export const meta = {
   id: 'arrows',
   name: 'Arrows',
-  blurb: 'Tap an arrow to send it off the board. It only leaves if nothing is in its way.',
+  blurb: 'Tap an arrow to send it off the board. Hit a blocked one and you lose a heart. Pinch to zoom.',
 };
 
 export const DX = [0, 1, 0, -1];
 export const DY = [-1, 0, 1, 0];
 
+// lens: [min, max, weight] buckets for arrow length.
+const SHORT = [2, 5, 0.6], MID = [6, 12, 0.28], LONG = [13, 28, 0.12];
 const TIERS = {
-  easy:   { w: 6,  h: 7,  len: [2, 4], target: 4,  tries: 24 },
-  medium: { w: 8,  h: 10, len: [2, 5], target: 7,  tries: 18 },
-  hard:   { w: 10, h: 13, len: [2, 6], target: 10, tries: 12 },
-  expert: { w: 12, h: 16, len: [3, 8], target: 14, tries: 8 },
+  easy:   { w: 10, h: 14, lives: 5, lens: [[2, 5, 0.75], [6, 10, 0.25]], tries: 3 },
+  medium: { w: 15, h: 22, lives: 3, lens: [SHORT, MID, LONG], tries: 3 },
+  hard:   { w: 20, h: 30, lives: 3, lens: [SHORT, MID, LONG], tries: 2 },
+  expert: { w: 24, h: 38, lives: 3, lens: [[2, 5, 0.62], [6, 14, 0.26], [15, 34, 0.12]], tries: 2 },
 };
 
 function headDir(cells) {
@@ -55,73 +58,115 @@ function rayCells(w, h, arrow) {
 export function analyze(w, h, arrows) {
   const occ = new Int16Array(w * h).fill(-1);
   arrows.forEach((a, i) => a.cells.forEach(([x, y]) => { occ[y * w + x] = i; }));
-  let alive = arrows.map((_, i) => i);
-  const fracs = [];
-  while (alive.length) {
-    const free = alive.filter((i) => !blocker(occ, w, h, arrows[i], i));
-    if (!free.length) return null;
-    fracs.push(free.length / alive.length);
-    for (const i of free) for (const [x, y] of arrows[i].cells) occ[y * w + x] = -1;
-    const gone = new Set(free);
-    alive = alive.filter((i) => !gone.has(i));
+  const waitsOn = arrows.map((a, i) => new Set(rayCells(w, h, a).map((c) => occ[c]).filter((o) => o >= 0 && o !== i)));
+  const blocks = arrows.map(() => []);
+  waitsOn.forEach((s, i) => s.forEach((j) => blocks[j].push(i)));
+  const count = waitsOn.map((s) => s.size);
+  let free = count.map((c, i) => (c === 0 ? i : -1)).filter((i) => i >= 0);
+  let left = arrows.length, depth = 0, frac = 0;
+  while (free.length) {
+    depth++;
+    frac += free.length / left;
+    left -= free.length;
+    const next = [];
+    for (const i of free) for (const j of blocks[i]) if (--count[j] === 0) next.push(j);
+    free = next;
   }
-  return { depth: fracs.length, freeFrac: fracs.reduce((s, v) => s + v, 0) / fracs.length };
+  if (left) return null;
+  return { depth, freeFrac: frac / depth };
+}
+
+function pickLen(rng, lens) {
+  let r = rng() * lens.reduce((s, l) => s + l[2], 0);
+  for (const [lo, hi, wt] of lens) { if ((r -= wt) <= 0) return lo + rng.int(hi - lo + 1); }
+  return 2;
 }
 
 function build(t, rng) {
   const { w, h } = t;
-  const occ = new Int16Array(w * h).fill(-1);
+  const n = w * h;
+  const occ = new Int16Array(n).fill(-1);
+  const rayCover = Array.from({ length: n }, () => []); // cell -> arrows whose path out crosses it
+  const waitsOn = [], blocks = [];
   const arrows = [];
+  const stamp = new Int32Array(4096);
+  let tick = 0;
   const open = (x, y) => x >= 0 && y >= 0 && x < w && y < h && occ[y * w + x] < 0;
 
-  const tryPlace = (path) => {
-    const options = [path, path.slice().reverse()]
-      .map((cells) => ({ cells, dir: headDir(cells) }))
-      .filter((a) => {
-        const own = new Set(a.cells.map(([x, y]) => y * w + x));
-        return !rayCells(w, h, a).some((c) => own.has(c));
-      });
-    // Prefer heads that point across the board: longer paths out make deeper puzzles.
-    options.sort((a, b) => rayCells(w, h, b).length - rayCells(w, h, a).length);
-    if (options.length === 2 && rng() < 0.25) options.reverse();
-    for (const a of options) {
-      const id = arrows.length;
-      for (const [x, y] of a.cells) occ[y * w + x] = id;
-      arrows.push(a);
-      if (analyze(w, h, arrows)) return true;
-      arrows.pop();
-      for (const [x, y] of a.cells) occ[y * w + x] = -1;
+  // Would adding this arrow create a loop of arrows waiting on each other?
+  const wouldLoop = (outs, ins) => {
+    for (const j of outs) if (ins.has(j)) return true;
+    tick++;
+    const stack = [...outs];
+    for (const j of outs) stamp[j] = tick;
+    while (stack.length) {
+      const j = stack.pop();
+      for (const k of waitsOn[j]) {
+        if (ins.has(k)) return true;
+        if (stamp[k] !== tick) { stamp[k] = tick; stack.push(k); }
+      }
     }
     return false;
   };
 
+  const tryPlace = (path) => {
+    const options = [path, path.slice().reverse()].map((cells) => ({ cells, dir: headDir(cells) }));
+    if (rng() < 0.5) options.reverse();
+    for (const a of options) {
+      const own = new Set(a.cells.map(([x, y]) => y * w + x));
+      const ray = rayCells(w, h, a);
+      if (ray.some((c) => own.has(c))) continue;
+      const outs = new Set();
+      for (const c of ray) if (occ[c] >= 0) outs.add(occ[c]);
+      const ins = new Set();
+      for (const c of own) for (const j of rayCover[c]) ins.add(j);
+      if (wouldLoop(outs, ins)) continue;
+      const id = arrows.length;
+      arrows.push(a);
+      for (const c of own) occ[c] = id;
+      for (const c of ray) rayCover[c].push(id);
+      waitsOn.push(outs);
+      blocks.push(ins);
+      for (const j of outs) blocks[j].add(id);
+      for (const j of ins) waitsOn[j].add(id);
+      return true;
+    }
+    return false;
+  };
+
+  // Winding walk: mostly straight, turns favor one rotation so long arrows
+  // hook and spiral around their neighbours.
   const grow = (sx, sy, L) => {
     const path = [[sx, sy]];
     const used = new Set([sy * w + sx]);
     let d = rng.int(4);
+    const spin = rng() < 0.5 ? 1 : 3;
     while (path.length < L) {
       const [x, y] = path[path.length - 1];
-      const opts = [];
-      for (let k = 0; k < 4; k++) {
-        const nx = x + DX[k], ny = y + DY[k];
-        if (open(nx, ny) && !used.has(ny * w + nx)) opts.push(k);
+      const ok = (k) => open(x + DX[k], y + DY[k]) && !used.has((y + DY[k]) * w + x + DX[k]);
+      let k;
+      const r = rng();
+      if (r < 0.55 && ok(d)) k = d;
+      else if (r < 0.85 && ok((d + spin) % 4)) k = (d + spin) % 4;
+      else {
+        const opts = [0, 1, 2, 3].filter(ok);
+        if (!opts.length) break;
+        k = rng.pick(opts);
       }
-      if (!opts.length) break;
-      d = opts.includes(d) && rng() < 0.6 ? d : rng.pick(opts);
-      const nx = x + DX[d], ny = y + DY[d];
-      path.push([nx, ny]);
-      used.add(ny * w + nx);
+      d = k;
+      path.push([x + DX[d], y + DY[d]]);
+      used.add((y + DY[d]) * w + x + DX[d]);
     }
     return path;
   };
 
-  const order = rng.shuffle([...Array(w * h).keys()]);
-  for (const [lo, hi] of [t.len, [2, 2]]) {
+  const order = rng.shuffle([...Array(n).keys()]);
+  for (const lens of [t.lens, [[2, 3, 1]]]) {
     for (const c of order) {
       if (occ[c] >= 0) continue;
       const x = c % w, y = (c / w) | 0;
       for (let attempt = 0; attempt < 3; attempt++) {
-        const p = grow(x, y, lo + rng.int(hi - lo + 1));
+        const p = grow(x, y, pickLen(rng, lens));
         if (p.length < 2) break;
         if (tryPlace(p)) break;
       }
@@ -138,35 +183,42 @@ export function generate(tier, seed) {
     const arrows = build(t, rng);
     const a = analyze(t.w, t.h, arrows);
     const coverage = arrows.reduce((s, x) => s + x.cells.length, 0) / (t.w * t.h);
-    const fit = -Math.abs(a.depth - t.target) + (1 - a.freeFrac) * 2 + coverage * 3;
+    const fit = a.depth * 0.2 + (1 - a.freeFrac) * 2 + coverage * 5;
     if (!best || fit > best.fit) best = { fit, arrows, a, coverage };
   }
   return {
-    puzzle: { w: t.w, h: t.h, arrows: best.arrows },
-    info: { depth: best.a.depth, freeFrac: +best.a.freeFrac.toFixed(2), count: best.arrows.length, coverage: +best.coverage.toFixed(2) },
+    puzzle: { w: t.w, h: t.h, lives: t.lives, arrows: best.arrows },
+    info: { count: best.arrows.length, depth: best.a.depth, freeFrac: +best.a.freeFrac.toFixed(2), coverage: +best.coverage.toFixed(2) },
   };
 }
 
 export function init(p) {
   const occ = new Int16Array(p.w * p.h).fill(-1);
   p.arrows.forEach((a, i) => a.cells.forEach(([x, y]) => { occ[y * p.w + x] = i; }));
-  return { occ, gone: p.arrows.map(() => false), left: p.arrows.length, bumps: 0 };
+  return { occ, gone: p.arrows.map(() => false), left: p.arrows.length, lives: p.lives };
 }
 
-// Tapping a blocked arrow is a move too (it counts as a bump).
+// Tapping a blocked arrow is a move too: it costs a heart.
 export function apply(p, s, id) {
-  if (s.gone[id]) return null;
+  if (s.gone[id] || s.lives <= 0) return null;
   const hit = blocker(s.occ, p.w, p.h, p.arrows[id], id);
-  if (hit) { s.bumps++; return { type: 'bump', id, hit }; }
+  if (hit) { s.lives--; return { type: 'bump', id, hit }; }
   s.gone[id] = true;
   s.left--;
   for (const [x, y] of p.arrows[id].cells) s.occ[y * p.w + x] = -1;
   return { type: 'exit', id };
 }
 
-export function status(p, s) { return s.left === 0 ? 'won' : 'play'; }
+export function status(p, s) {
+  if (s.left === 0) return 'won';
+  return s.lives <= 0 ? 'lost' : 'play';
+}
+
+export function hearts(p, s) { return '♥'.repeat(Math.max(0, s.lives)) + '♡'.repeat(p.lives - Math.max(0, s.lives)); }
 
 export function describe(p, s) {
-  if (s.left === 0) return s.bumps ? `Cleared with ${s.bumps} bump${s.bumps > 1 ? 's' : ''}` : 'Cleared without a bump';
-  return `${s.left} left` + (s.bumps ? ` · ${s.bumps} bump${s.bumps > 1 ? 's' : ''}` : '');
+  if (s.left === 0) return `Cleared ${p.arrows.length} arrows · ${hearts(p, s)}`;
+  return `${hearts(p, s)}  ·  ${s.left} of ${p.arrows.length} left`;
 }
+
+export function lostText() { return 'Out of hearts'; }

@@ -21,4 +21,4 @@ export function svgPoint(svg, evt) {
   return [p.x, p.y];
 }
 
-export const PALETTE = ['#4f8cff', '#2bb673', '#f5a524', '#a970ff', '#16b5c8', '#ff7ac6', '#9bb31a', '#8d7a6b', '#6c8ebf', '#d4a017', '#3fb8a9', '#c45fd6', '#7d8ca3'];
+export const PALETTE = ['#4f8cff', '#2bb673', '#f5a524', '#a970ff', '#16b5c8', '#ff7ac6', '#9bb31a', '#8d7a6b', '#6c8ebf', '#d4a017', '#3fb8a9', '#c45fd6'];
